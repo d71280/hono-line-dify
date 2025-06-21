@@ -64,7 +64,7 @@ app.post("/", async (c) => {
   
   const rawBody = await c.req.text()
   const webhookBody: WebhookBody = JSON.parse(rawBody)
-  const signature = c.req.header()["x-line-signature"] || ""
+  const originalSignature = c.req.header()["x-line-signature"] || ""
   
   // すべてのヘッダーを取得
   const headers = c.req.header()
@@ -73,43 +73,47 @@ app.post("/", async (c) => {
   console.log(`[Webhook受信] Destination: ${webhookBody.destination}`)
 
   // LINE署名を検証
-  if (!validateSignature(signature, rawBody)) {
+  if (!validateSignature(originalSignature, rawBody)) {
     console.error("[エラー] LINE署名検証に失敗しました")
     return c.json({ status: 401, message: "Invalid signature" }, 401)
   }
 
-  // 共通のヘッダー準備
-  const prepareHeaders = () => {
+  // ✅ 完全LINE Webhook模倣ヘッダー準備
+  const prepareLINEHeaders = () => {
     const forwardHeaders: any = {
       "Content-Type": "application/json",
-      "X-Line-Signature": signature  // LINE署名をそのまま転送
+      "User-Agent": "LineBotWebhook/2.0",
+      "X-Line-Signature": originalSignature
     }
     
-    // LINE関連のヘッダーをすべて転送
+    // LINE特有のヘッダーをすべて転送
     Object.keys(headers).forEach(key => {
-      if (key.toLowerCase().startsWith('x-line-')) {
+      const lowerKey = key.toLowerCase()
+      if (lowerKey.startsWith('x-line-') && lowerKey !== 'x-line-signature') {
         forwardHeaders[key] = headers[key]
       }
     })
     
+    // LINE公式のその他のヘッダーを模倣
+    forwardHeaders["Accept"] = "application/json"
+    forwardHeaders["Cache-Control"] = "no-cache"
+    
     return forwardHeaders
   }
 
-  // Lステップへの転送
+  // Lステップへの転送（完全模倣）
   const forwardToLStep = async () => {
     try {
       console.log("[Lステップ転送] 開始")
       console.log(`[Lステップ転送] URL: ${process.env.LSTEP_WEBHOOK_URL}`)
-      console.log(`[Lステップ転送] URL length: ${process.env.LSTEP_WEBHOOK_URL?.length}`)
-      console.log(`[Lステップ転送] Body: ${rawBody.substring(0, 100)}`)
       
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 30000) // 30秒タイムアウト
+      const timeoutId = setTimeout(() => controller.abort(), 30000)
       
       const res = await fetch(process.env.LSTEP_WEBHOOK_URL!, {
         method: "POST",
-        headers: prepareHeaders(),
-        body: rawBody,  // リクエストボディをそのまま転送
+        headers: prepareLINEHeaders(),
+        body: rawBody,
         signal: controller.signal
       }).finally(() => clearTimeout(timeoutId))
 
@@ -128,29 +132,19 @@ app.post("/", async (c) => {
     }
   }
 
-  // Difyへの転送
+  // Difyへの転送（完全模倣）
   const forwardToDify = async () => {
     try {
       console.log("[Dify転送] 開始")
       console.log(`[Dify転送] URL: ${process.env.DIFY_LINE_BOT_ENDPOINT}`)
       
-      // ✅ Dify用のヘッダーを調整（APIキーを含める）
-      const difyHeaders = {
-        "Content-Type": "application/json",
-        "X-Line-Signature": signature,
-        "Authorization": `Bearer ${process.env.DIFY_API_KEY}`
-      }
-      
-      // LINE関連のヘッダーも転送
-      Object.keys(headers).forEach(key => {
-        if (key.toLowerCase().startsWith('x-line-')) {
-          difyHeaders[key] = headers[key]
-        }
-      })
+      // ✅ controllerとtimeoutIdを正しく定義
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 30000)
       
       const res = await fetch(process.env.DIFY_LINE_BOT_ENDPOINT!, {
         method: "POST",
-        headers: difyHeaders,
+        headers: prepareLINEHeaders(),
         body: rawBody,
         signal: controller.signal
       }).finally(() => clearTimeout(timeoutId))
@@ -174,7 +168,7 @@ app.post("/", async (c) => {
     }
   }
 
-  // LステップとDifyへの転送を並行実行（レスポンスを待たない）
+  // LステップとDifyへの転送を並行実行
   console.log("[転送開始] LステップとDifyへの並行転送を開始します")
   forwardToLStep().catch(err => console.error("[Lステップ転送] 致命的エラー:", err))
   forwardToDify().catch(err => console.error("[Dify転送] 致命的エラー:", err))
