@@ -78,6 +78,23 @@ app.post("/", async (c) => {
     return c.json({ status: 401, message: "Invalid signature" }, 401)
   }
 
+  // 共通のヘッダー準備
+  const prepareHeaders = () => {
+    const forwardHeaders: any = {
+      "Content-Type": "application/json",
+      "X-Line-Signature": signature  // LINE署名をそのまま転送
+    }
+    
+    // LINE関連のヘッダーをすべて転送
+    Object.keys(headers).forEach(key => {
+      if (key.toLowerCase().startsWith('x-line-')) {
+        forwardHeaders[key] = headers[key]
+      }
+    })
+    
+    return forwardHeaders
+  }
+
   // Lステップへの転送
   const forwardToLStep = async () => {
     try {
@@ -91,11 +108,8 @@ app.post("/", async (c) => {
       
       const res = await fetch(process.env.LSTEP_WEBHOOK_URL!, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Line-Signature": signature
-        },
-        body: rawBody,
+        headers: prepareHeaders(),
+        body: rawBody,  // リクエストボディをそのまま転送
         signal: controller.signal
       }).finally(() => clearTimeout(timeoutId))
 
