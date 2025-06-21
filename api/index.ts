@@ -43,12 +43,16 @@ app.get("/debug", (c) => {
   const envStatus = required.map(key => ({
     key,
     exists: !!process.env[key],
-    value: process.env[key] ? `${process.env[key].substring(0, 10)}...` : null
+    value: process.env[key] ? `${process.env[key].substring(0, 20)}...` : "NOT_SET",
+    fullLength: process.env[key]?.length || 0
   }))
   
   return c.json({
     envStatus,
-    allKeys: Object.keys(process.env).filter(key => key.includes('LINE') || key.includes('DIFY') || key.includes('LSTEP'))
+    allKeys: Object.keys(process.env).filter(key => key.includes('LINE') || key.includes('DIFY') || key.includes('LSTEP')),
+    vercelEnv: process.env.VERCEL_ENV || "unknown",
+    nodeEnv: process.env.NODE_ENV || "unknown",
+    totalEnvVars: Object.keys(process.env).length
   })
 }) // デバッグ用
 
