@@ -148,30 +148,33 @@ const handleEvent = async (event: WebhookEvent, destination: string, originalSig
           if (isLStepMessage(messageText)) {
             console.log(`[フィルタリング] Lステップ専用メッセージ（【】で囲まれている）のため、Difyへの転送をスキップ`)
           } else {
-            // DifyのLINEBotへテキスト送信
-            console.log(`[Dify転送] テキストメッセージをDifyへ転送開始`)
-            try {
-              const res = await fetch(process.env.DIFY_LINE_BOT_ENDPOINT!, {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
-                  "Content-Type": "application/json",
-                  "X-Line-Signature": originalSignature
-                },
-                body: originalBody
-              })
-              
-              if (res.ok) {
-                console.log(`[Dify転送] 成功 - ステータス: ${res.status}`)
-                const responseText = await res.text()
-                console.log(`[Dify転送] レスポンス: ${responseText}`)
-              } else {
-                console.error(`[Dify転送] 失敗 - ステータス: ${res.status}`)
-                console.error(`[Dify転送] エラーレスポンス: ${await res.text()}`)
+            // DifyのLINEBotへ転送（Webhookをそのまま転送）
+            console.log(`[Dify転送] Difyへ転送開始`)
+            const forwardToDify = async () => {
+              try {
+                const res = await fetch(process.env.DIFY_LINE_BOT_ENDPOINT!, {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+                    "Content-Type": "application/json",
+                    "X-Line-Signature": originalSignature
+                  },
+                  body: originalBody
+                })
+                
+                if (res.ok) {
+                  console.log(`[Dify転送] 成功 - ステータス: ${res.status}`)
+                } else {
+                  console.error(`[Dify転送] 失敗 - ステータス: ${res.status}`)
+                  const errorText = await res.text()
+                  console.error(`[Dify転送] エラーレスポンス: ${errorText}`)
+                }
+              } catch (error) {
+                console.error("[Dify転送] エラー:", error)
               }
-            } catch (error) {
-              console.error("[Dify転送] エラー:", error)
             }
+            // 非同期で実行
+            forwardToDify()
           }
           break
         case "image":
