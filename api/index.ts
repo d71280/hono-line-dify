@@ -82,10 +82,7 @@ app.post("/", async (c) => {
   const prepareLINEHeaders = () => {
     const forwardHeaders: any = {
       "Content-Type": "application/json",
-      "User-Agent": "LineBotWebhook/1.0",
-      "X-Line-Signature": originalSignature,
-      "X-Forwarded-For": "203.104.209.7",
-      "X-Real-IP": "203.104.209.7"
+      "User-Agent": "LineBotWebhook/1.0"
     }
     
     // LINE特有のヘッダーをすべて転送
