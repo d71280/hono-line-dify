@@ -78,23 +78,6 @@ app.post("/", async (c) => {
     return c.json({ status: 401, message: "Invalid signature" }, 401)
   }
 
-  // 共通のヘッダー準備
-  const prepareHeaders = () => {
-    const forwardHeaders: any = {
-      "Content-Type": "application/json",
-      "X-Line-Signature": signature
-    }
-    
-    // LINE関連のヘッダーをすべて転送
-    Object.keys(headers).forEach(key => {
-      if (key.toLowerCase().startsWith('x-line-')) {
-        forwardHeaders[key] = headers[key]
-      }
-    })
-    
-    return forwardHeaders
-  }
-
   // Lステップへの転送
   const forwardToLStep = async () => {
     try {
@@ -108,7 +91,10 @@ app.post("/", async (c) => {
       
       const res = await fetch(process.env.LSTEP_WEBHOOK_URL!, {
         method: "POST",
-        headers: prepareHeaders(),
+        headers: {
+          "Content-Type": "application/json",
+          "X-Line-Signature": signature
+        },
         body: rawBody,
         signal: controller.signal
       }).finally(() => clearTimeout(timeoutId))
@@ -135,15 +121,28 @@ app.post("/", async (c) => {
       console.log(`[Dify転送] URL: ${process.env.DIFY_LINE_BOT_ENDPOINT}`)
       console.log(`[Dify転送] Body size: ${rawBody.length} bytes`)
       
-      const forwardHeaders = prepareHeaders()
-      console.log(`[Dify転送] ヘッダー:`, JSON.stringify(forwardHeaders))
+      // ✅ Dify用のヘッダーを調整
+      const difyHeaders = {
+        "Content-Type": "application/json",
+        "X-Line-Signature": signature,
+        "User-Agent": "LineBot-Webhook/1.0"
+      }
+      
+      // LINE関連のヘッダーをすべて転送
+      Object.keys(headers).forEach(key => {
+        if (key.toLowerCase().startsWith('x-line-')) {
+          difyHeaders[key] = headers[key]
+        }
+      })
+      
+      console.log(`[Dify転送] ヘッダー:`, JSON.stringify(difyHeaders))
       
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 30000) // 30秒タイムアウト
+      const timeoutId = setTimeout(() => controller.abort(), 30000)
       
       const res = await fetch(process.env.DIFY_LINE_BOT_ENDPOINT!, {
         method: "POST",
-        headers: forwardHeaders,
+        headers: difyHeaders,
         body: rawBody,
         signal: controller.signal
       }).finally(() => clearTimeout(timeoutId))
