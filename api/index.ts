@@ -82,8 +82,10 @@ app.post("/", async (c) => {
   const prepareLINEHeaders = () => {
     const forwardHeaders: any = {
       "Content-Type": "application/json",
-      "User-Agent": "LineBotWebhook/2.0",
-      "X-Line-Signature": originalSignature
+      "User-Agent": "LineBotWebhook/1.0",
+      "X-Line-Signature": originalSignature,
+      "X-Forwarded-For": "203.104.209.7",
+      "X-Real-IP": "203.104.209.7"
     }
     
     // LINE特有のヘッダーをすべて転送
@@ -107,17 +109,22 @@ app.post("/", async (c) => {
       console.log("[Lステップ転送] 開始")
       console.log(`[Lステップ転送] URL: ${process.env.LSTEP_WEBHOOK_URL}`)
       
+      const headers = prepareLINEHeaders()
+      console.log(`[Lステップ転送] ヘッダー:`, JSON.stringify(headers))
+      console.log(`[Lステップ転送] ボディサイズ: ${rawBody.length} bytes`)
+      
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 30000)
       
+      console.log("[Lステップ転送] fetch開始")
       const res = await fetch(process.env.LSTEP_WEBHOOK_URL!, {
         method: "POST",
-        headers: prepareLINEHeaders(),
+        headers: headers,
         body: rawBody,
         signal: controller.signal
       }).finally(() => clearTimeout(timeoutId))
 
-      console.log(`[Lステップ転送] レスポンス受信 - ステータス: ${res.status}`)
+      console.log(`[Lステップ転送] fetch完了 - ステータス: ${res.status}`)
       if (res.ok) {
         console.log(`[Lステップ転送] 成功 - ステータス: ${res.status}`)
         const responseText = await res.text()
