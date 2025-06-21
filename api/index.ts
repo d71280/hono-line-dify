@@ -98,7 +98,7 @@ app.post("/", async (c) => {
       console.log(`[Lステップ転送] URL: ${process.env.LSTEP_WEBHOOK_URL}`)
       
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 10000) // 10秒タイムアウト
+      const timeoutId = setTimeout(() => controller.abort(), 30000) // 30秒タイムアウト
       
       const res = await fetch(process.env.LSTEP_WEBHOOK_URL!, {
         method: "POST",
@@ -124,12 +124,13 @@ app.post("/", async (c) => {
     try {
       console.log("[Dify転送] 開始")
       console.log(`[Dify転送] URL: ${process.env.DIFY_LINE_BOT_ENDPOINT}`)
+      console.log(`[Dify転送] Body size: ${rawBody.length} bytes`)
       
       const forwardHeaders = prepareHeaders()
       console.log(`[Dify転送] ヘッダー:`, JSON.stringify(forwardHeaders))
       
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 10000) // 10秒タイムアウト
+      const timeoutId = setTimeout(() => controller.abort(), 30000) // 30秒タイムアウト
       
       const res = await fetch(process.env.DIFY_LINE_BOT_ENDPOINT!, {
         method: "POST",
@@ -146,7 +147,11 @@ app.post("/", async (c) => {
         console.error(`[Dify転送] エラーレスポンス: ${errorText}`)
       }
     } catch (error) {
-      console.error("[Dify転送] エラー:", error)
+      if (error.name === 'AbortError') {
+        console.error("[Dify転送] タイムアウトエラー: 30秒以内に応答がありませんでした")
+      } else {
+        console.error("[Dify転送] エラー:", error)
+      }
     }
   }
 
