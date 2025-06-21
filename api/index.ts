@@ -8,45 +8,90 @@ import { deleteStorageFile, uploadToBlobStorage } from "./blob.js"
 import { getContentByMessageId } from "./line.js"
 import { DifyChatResponse, WebhookBody, WebhookEvent } from "./type.js"
 
+// 環境変数の検証
+const validateEnvVars = () => {
+  const required = [
+    "LINE_CHANNEL_ACCESS_TOKEN",
+    "LINE_CHANNEL_SECRET",
+    "LSTEP_WEBHOOK_URL",
+    "DIFY_API_KEY",
+    "DIFY_LINE_BOT_ENDPOINT"
+  ]
+  
+  const missing = required.filter(key => !process.env[key])
+  if (missing.length > 0) {
+    console.error(`[環境変数エラー] 以下の環境変数が設定されていません: ${missing.join(", ")}`)
+    return false
+  }
+  return true
+}
+
 const app = new Hono().basePath("/api")
 
-app.get("/", (c) => c.json({ status: 200 })) // ヘルスチェック用
+app.get("/", (c) => {
+  const envValid = validateEnvVars()
+  return c.json({ 
+    status: envValid ? 200 : 500,
+    message: envValid ? "Proxy server is running" : "Environment variables are not properly configured",
+    timestamp: new Date().toISOString()
+  })
+}) // ヘルスチェック用
 
 app.post("/", async (c) => {
+  // 環境変数の検証
+  if (!validateEnvVars()) {
+    return c.json({ status: 500, message: "Server configuration error" }, 500)
+  }
+  
   const rawBody = await c.req.text()
   const webhookBody: WebhookBody = await c.req.json()
   const signature = c.req.header()["x-line-signature"] || ""
 
-  console.log(`rawBody:`, rawBody)
+  console.log(`[Webhook受信] イベント数: ${webhookBody.events.length}`)
+  console.log(`[Webhook受信] Destination: ${webhookBody.destination}`)
 
   // LINE署名を検証
   if (!validateSignature(signature, rawBody)) {
-    console.error("署名検証に失敗")
+    console.error("[エラー] LINE署名検証に失敗しました")
+    return c.json({ status: 401, message: "Invalid signature" }, 401)
   }
 
   // Lステップへ転送（JSONと署名をそのまま）
-  try {
-    const res = await fetch(process.env.LSTEP_WEBHOOK_URL!, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
-        "Content-Type": "application/json",
-        "X-Line-Signature": signature
-      },
-      body: rawBody
-    }).catch((e) => console.error("Lステップ転送エラー:", e))
+  const forwardToLStep = async () => {
+    try {
+      console.log("[Lステップ転送] 開始")
+      const res = await fetch(process.env.LSTEP_WEBHOOK_URL!, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+          "Content-Type": "application/json",
+          "X-Line-Signature": signature
+        },
+        body: rawBody
+      })
 
-    console.log(JSON.stringify(res))
-  } catch (error) {
-    console.log(error)
+      if (res.ok) {
+        console.log(`[Lステップ転送] 成功 - ステータス: ${res.status}`)
+      } else {
+        console.error(`[Lステップ転送] 失敗 - ステータス: ${res.status}`)
+        const errorText = await res.text()
+        console.error(`[Lステップ転送] レスポンス: ${errorText}`)
+      }
+    } catch (error) {
+      console.error("[Lステップ転送] エラー:", error)
+    }
   }
+  
+  // Lステップへの転送を非同期で実行（レスポンスを待たない）
+  forwardToLStep()
 
   // Dify処理
   for (const event of webhookBody.events) {
     try {
+      console.log(`[イベント処理] タイプ: ${event.type}`)
       await handleEvent(event, webhookBody.destination)
     } catch (err) {
-      console.error("イベント処理中にエラー:", err)
+      console.error("[イベント処理] エラー:", err)
     }
   }
 
@@ -76,9 +121,14 @@ const handleEvent = async (event: WebhookEvent, destination: string) => {
     case "message":
       switch (event.message.type) {
         case "text":
-          if (!isLStepMessage(event.message.text)) {
+          const messageText = event.message.text
+          console.log(`[テキストメッセージ] 内容: ${messageText}`)
+          
+          if (isLStepMessage(messageText)) {
+            console.log(`[フィルタリング] Lステップ専用メッセージ（【】で囲まれている）のため、Difyへの転送をスキップ`)
+          } else {
             // DifyのLINEBotへテキスト送信
-            // TODO: 分岐処理が必要になったら、KVSと組み合わせてメッセージ先頭への追記処理
+            console.log(`[Dify転送] テキストメッセージをDifyへ転送開始`)
             try {
               const body = JSON.stringify({
                 destination: destination,
@@ -92,10 +142,18 @@ const handleEvent = async (event: WebhookEvent, destination: string) => {
                   "X-Line-Signature": createSignature(body)
                 },
                 body: body
-              }).catch((e) => console.error("Dify LINE Bot転送エラー:", e))
-              if (res) console.log(`LINE Botプラグインレスポンス：\n${await res.text()}`)
+              })
+              
+              if (res.ok) {
+                console.log(`[Dify転送] 成功 - ステータス: ${res.status}`)
+                const responseText = await res.text()
+                console.log(`[Dify転送] レスポンス: ${responseText}`)
+              } else {
+                console.error(`[Dify転送] 失敗 - ステータス: ${res.status}`)
+                console.error(`[Dify転送] エラーレスポンス: ${await res.text()}`)
+              }
             } catch (error) {
-              console.log(error)
+              console.error("[Dify転送] エラー:", error)
             }
           }
           break
@@ -104,11 +162,15 @@ const handleEvent = async (event: WebhookEvent, destination: string) => {
         case "video":
         case "file":
           // ファイル情報取得して、DifyのAPIへ送信
+          console.log(`[メディアメッセージ] タイプ: ${event.message.type}, ID: ${event.message.id}`)
           try {
             const messageId = event.message.id
             const contentBlob = await getContentByMessageId(messageId)
             const extension = extractExtensionFromContentType(contentBlob.type || "")
+            console.log(`[メディア処理] コンテンツタイプ: ${contentBlob.type}, 拡張子: ${extension}`)
+            
             const blobUrl = await uploadToBlobStorage(messageId, extension, contentBlob)
+            console.log(`[メディア処理] Blob URLにアップロード完了: ${blobUrl}`)
 
             const payload = {
               inputs: {},
@@ -124,7 +186,7 @@ const handleEvent = async (event: WebhookEvent, destination: string) => {
                 }
               ]
             }
-            console.log(JSON.stringify(payload))
+            console.log(`[Dify API] リクエストペイロード:`, JSON.stringify(payload))
             const res = await fetch(DIFY_API_ENDPOINT, {
               method: "POST",
               headers: {
@@ -132,15 +194,20 @@ const handleEvent = async (event: WebhookEvent, destination: string) => {
                 "Content-Type": "application/json"
               },
               body: JSON.stringify(payload)
-            }).catch((e) => console.error("Dify API転送エラー:", e))
+            })
 
             const difyResponse = res ? ((await res.json()) as DifyChatResponse) : null
+            console.log(`[Dify API] レスポンス:`, difyResponse ? `回答文字数: ${difyResponse.answer.length}` : "レスポンスなし")
 
             // Blobの画像削除
-            if (blobUrl) await deleteStorageFile(blobUrl)
+            if (blobUrl) {
+              await deleteStorageFile(blobUrl)
+              console.log(`[メディア処理] 一時ファイルを削除しました: ${blobUrl}`)
+            }
 
             // Difyのレスポンスを使ってLINE送信
-            await fetch(LINE_REPLY_ENDPOINT, {
+            console.log(`[LINE返信] ユーザーへの返信を送信中...`)
+            const replyRes = await fetch(LINE_REPLY_ENDPOINT, {
               method: "POST",
               headers: {
                 Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
@@ -156,17 +223,24 @@ const handleEvent = async (event: WebhookEvent, destination: string) => {
                 ]
               })
             })
+            
+            if (replyRes.ok) {
+              console.log(`[LINE返信] 返信送信成功`)
+            } else {
+              console.error(`[LINE返信] 返信送信失敗 - ステータス: ${replyRes.status}`)
+            }
           } catch (error) {
-            console.log(error)
+            console.error(`[メディア処理] エラー:`, error)
           }
           break
         default:
           // 何もしない
-          console.log(`other event: ${event.message.type}`)
+          console.log(`[未対応メッセージ] タイプ: ${event.message.type}`)
       }
       break
     default:
-    // 何もしない
+      // 何もしない
+      console.log(`[未対応イベント] タイプ: ${event.type}`)
   }
 }
 
