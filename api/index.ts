@@ -119,26 +119,20 @@ app.post("/", async (c) => {
     try {
       console.log("[Dify転送] 開始")
       console.log(`[Dify転送] URL: ${process.env.DIFY_LINE_BOT_ENDPOINT}`)
-      console.log(`[Dify転送] Body size: ${rawBody.length} bytes`)
       
-      // ✅ Dify用のヘッダーを調整
+      // ✅ Dify用のヘッダーを調整（APIキーを含める）
       const difyHeaders = {
         "Content-Type": "application/json",
         "X-Line-Signature": signature,
-        "User-Agent": "LineBot-Webhook/1.0"
+        "Authorization": `Bearer ${process.env.DIFY_API_KEY}`
       }
       
-      // LINE関連のヘッダーをすべて転送
+      // LINE関連のヘッダーも転送
       Object.keys(headers).forEach(key => {
         if (key.toLowerCase().startsWith('x-line-')) {
           difyHeaders[key] = headers[key]
         }
       })
-      
-      console.log(`[Dify転送] ヘッダー:`, JSON.stringify(difyHeaders))
-      
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 30000)
       
       const res = await fetch(process.env.DIFY_LINE_BOT_ENDPOINT!, {
         method: "POST",
