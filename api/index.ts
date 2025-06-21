@@ -67,6 +67,9 @@ app.post("/", async (c) => {
   const rawBody = await c.req.text()
   const webhookBody: WebhookBody = await c.req.json()
   const signature = c.req.header()["x-line-signature"] || ""
+  
+  // すべてのヘッダーを取得
+  const headers = c.req.header()
 
   console.log(`[Webhook受信] イベント数: ${webhookBody.events.length}`)
   console.log(`[Webhook受信] Destination: ${webhookBody.destination}`)
@@ -81,13 +84,22 @@ app.post("/", async (c) => {
   const forwardToLStep = async () => {
     try {
       console.log("[Lステップ転送] 開始")
+      // LINE固有のヘッダーのみを転送
+      const forwardHeaders: any = {
+        "Content-Type": "application/json",
+        "X-Line-Signature": signature
+      }
+      
+      // LINE関連のヘッダーをすべて転送
+      Object.keys(headers).forEach(key => {
+        if (key.toLowerCase().startsWith('x-line-')) {
+          forwardHeaders[key] = headers[key]
+        }
+      })
+      
       const res = await fetch(process.env.LSTEP_WEBHOOK_URL!, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
-          "Content-Type": "application/json",
-          "X-Line-Signature": signature
-        },
+        headers: forwardHeaders,
         body: rawBody
       })
 
@@ -110,7 +122,7 @@ app.post("/", async (c) => {
   for (const event of webhookBody.events) {
     try {
       console.log(`[イベント処理] タイプ: ${event.type}`)
-      await handleEvent(event, webhookBody.destination, signature, rawBody)
+      await handleEvent(event, webhookBody.destination, signature, rawBody, headers)
     } catch (err) {
       console.error("[イベント処理] エラー:", err)
     }
@@ -137,7 +149,7 @@ const validateSignature = (signature: string, body: string) => {
   return signature === createSignature(body)
 }
 
-const handleEvent = async (event: WebhookEvent, destination: string, originalSignature: string, originalBody: string) => {
+const handleEvent = async (event: WebhookEvent, destination: string, originalSignature: string, originalBody: string, originalHeaders: any) => {
   switch (event.type) {
     case "message":
       switch (event.message.type) {
@@ -150,15 +162,27 @@ const handleEvent = async (event: WebhookEvent, destination: string, originalSig
           } else {
             // DifyのLINEBotへ転送（Webhookをそのまま転送）
             console.log(`[Dify転送] Difyへ転送開始`)
+            console.log(`[Dify転送] URL: ${process.env.DIFY_LINE_BOT_ENDPOINT}`)
             const forwardToDify = async () => {
               try {
+                // LINE固有のヘッダーのみを転送
+                const forwardHeaders: any = {
+                  "Content-Type": "application/json",
+                  "X-Line-Signature": originalSignature
+                }
+                
+                // LINE関連のヘッダーをすべて転送
+                Object.keys(originalHeaders).forEach(key => {
+                  if (key.toLowerCase().startsWith('x-line-')) {
+                    forwardHeaders[key] = originalHeaders[key]
+                  }
+                })
+                
+                console.log(`[Dify転送] ヘッダー:`, JSON.stringify(forwardHeaders))
+                
                 const res = await fetch(process.env.DIFY_LINE_BOT_ENDPOINT!, {
                   method: "POST",
-                  headers: {
-                    Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
-                    "Content-Type": "application/json",
-                    "X-Line-Signature": originalSignature
-                  },
+                  headers: forwardHeaders,
                   body: originalBody
                 })
                 
