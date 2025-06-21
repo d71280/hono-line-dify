@@ -78,24 +78,40 @@ app.post("/", async (c) => {
     return c.json({ status: 401, message: "Invalid signature" }, 401)
   }
 
-  // ✅ 完全LINE Webhook模倣ヘッダー準備
+  // ✅ プロキシ情報完全除去版ヘッダー
   const prepareLINEHeaders = () => {
     const forwardHeaders: any = {
       "Content-Type": "application/json",
-      "User-Agent": "LineBotWebhook/1.0"
+      "User-Agent": "LineBotWebhook/1.0",
+      "X-Line-Signature": originalSignature,
+      "Accept": "application/json",
+      "Cache-Control": "no-cache"
     }
     
-    // LINE特有のヘッダーをすべて転送
+    // ✅ LINE特有のヘッダーのみ厳選して転送
     Object.keys(headers).forEach(key => {
       const lowerKey = key.toLowerCase()
-      if (lowerKey.startsWith('x-line-') && lowerKey !== 'x-line-signature') {
+      if (lowerKey.startsWith('x-line-') && 
+          lowerKey !== 'x-line-signature' &&
+          !lowerKey.includes('forwarded') &&  // プロキシ関連を除外
+          !lowerKey.includes('host') &&       // Host関連を除外
+          !lowerKey.includes('proxy')) {      // プロキシ関連を除外
         forwardHeaders[key] = headers[key]
       }
     })
     
-    // LINE公式のその他のヘッダーを模倣
-    forwardHeaders["Accept"] = "application/json"
-    forwardHeaders["Cache-Control"] = "no-cache"
+    // ✅ プロキシ関連ヘッダーを完全除去
+    const blacklistedHeaders = [
+      'host', 'referer', 'origin', 
+      'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto',
+      'x-real-ip', 'x-vercel-id', 'x-vercel-cache',
+      'cf-ray', 'cf-connecting-ip'
+    ]
+    
+    blacklistedHeaders.forEach(header => {
+      delete forwardHeaders[header]
+      delete forwardHeaders[header.toUpperCase()]
+    })
     
     return forwardHeaders
   }
