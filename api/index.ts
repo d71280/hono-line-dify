@@ -96,6 +96,8 @@ app.post("/", async (c) => {
     try {
       console.log("[Lステップ転送] 開始")
       console.log(`[Lステップ転送] URL: ${process.env.LSTEP_WEBHOOK_URL}`)
+      console.log(`[Lステップ転送] URL length: ${process.env.LSTEP_WEBHOOK_URL?.length}`)
+      console.log(`[Lステップ転送] Body: ${rawBody.substring(0, 100)}`)
       
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 30000) // 30秒タイムアウト
@@ -107,12 +109,15 @@ app.post("/", async (c) => {
         signal: controller.signal
       }).finally(() => clearTimeout(timeoutId))
 
+      console.log(`[Lステップ転送] レスポンス受信 - ステータス: ${res.status}`)
       if (res.ok) {
         console.log(`[Lステップ転送] 成功 - ステータス: ${res.status}`)
+        const responseText = await res.text()
+        console.log(`[Lステップ転送] レスポンス内容: ${responseText.substring(0, 200)}`)
       } else {
         console.error(`[Lステップ転送] 失敗 - ステータス: ${res.status}`)
         const errorText = await res.text()
-        console.error(`[Lステップ転送] レスポンス: ${errorText}`)
+        console.error(`[Lステップ転送] エラーレスポンス: ${errorText}`)
       }
     } catch (error) {
       console.error("[Lステップ転送] エラー:", error)
@@ -139,8 +144,11 @@ app.post("/", async (c) => {
         signal: controller.signal
       }).finally(() => clearTimeout(timeoutId))
       
+      console.log(`[Dify転送] レスポンス受信 - ステータス: ${res.status}`)
       if (res.ok) {
         console.log(`[Dify転送] 成功 - ステータス: ${res.status}`)
+        const responseText = await res.text()
+        console.log(`[Dify転送] レスポンス内容: ${responseText.substring(0, 200)}`)
       } else {
         console.error(`[Dify転送] 失敗 - ステータス: ${res.status}`)
         const errorText = await res.text()
