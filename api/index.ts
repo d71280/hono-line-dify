@@ -110,7 +110,7 @@ app.post("/", async (c) => {
   for (const event of webhookBody.events) {
     try {
       console.log(`[イベント処理] タイプ: ${event.type}`)
-      await handleEvent(event, webhookBody.destination)
+      await handleEvent(event, webhookBody.destination, signature, rawBody)
     } catch (err) {
       console.error("[イベント処理] エラー:", err)
     }
@@ -137,7 +137,7 @@ const validateSignature = (signature: string, body: string) => {
   return signature === createSignature(body)
 }
 
-const handleEvent = async (event: WebhookEvent, destination: string) => {
+const handleEvent = async (event: WebhookEvent, destination: string, originalSignature: string, originalBody: string) => {
   switch (event.type) {
     case "message":
       switch (event.message.type) {
@@ -151,18 +151,14 @@ const handleEvent = async (event: WebhookEvent, destination: string) => {
             // DifyのLINEBotへテキスト送信
             console.log(`[Dify転送] テキストメッセージをDifyへ転送開始`)
             try {
-              const body = JSON.stringify({
-                destination: destination,
-                events: [event]
-              })
               const res = await fetch(process.env.DIFY_LINE_BOT_ENDPOINT!, {
                 method: "POST",
                 headers: {
                   Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
                   "Content-Type": "application/json",
-                  "X-Line-Signature": createSignature(body)
+                  "X-Line-Signature": originalSignature
                 },
-                body: body
+                body: originalBody
               })
               
               if (res.ok) {
