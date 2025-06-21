@@ -63,7 +63,7 @@ app.post("/", async (c) => {
   }
   
   const rawBody = await c.req.text()
-  const webhookBody: WebhookBody = await c.req.json()
+  const webhookBody: WebhookBody = JSON.parse(rawBody)
   const signature = c.req.header()["x-line-signature"] || ""
   
   // すべてのヘッダーを取得
