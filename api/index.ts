@@ -37,6 +37,27 @@ app.get("/", (c) => {
   })
 }) // ヘルスチェック用
 
+app.get("/debug", (c) => {
+  const required = [
+    "LINE_CHANNEL_ACCESS_TOKEN",
+    "LINE_CHANNEL_SECRET", 
+    "LSTEP_WEBHOOK_URL",
+    "DIFY_API_KEY",
+    "DIFY_LINE_BOT_ENDPOINT"
+  ]
+  
+  const envStatus = required.map(key => ({
+    key,
+    exists: !!process.env[key],
+    value: process.env[key] ? `${process.env[key].substring(0, 10)}...` : null
+  }))
+  
+  return c.json({
+    envStatus,
+    allKeys: Object.keys(process.env).filter(key => key.includes('LINE') || key.includes('DIFY') || key.includes('LSTEP'))
+  })
+}) // デバッグ用
+
 app.post("/", async (c) => {
   // 環境変数の検証
   if (!validateEnvVars()) {
