@@ -168,8 +168,9 @@ app.post("/", async (c) => {
   }
 
   // LステップとDifyへの転送を並行実行（レスポンスを待たない）
-  forwardToLStep()
-  forwardToDify()
+  console.log("[転送開始] LステップとDifyへの並行転送を開始します")
+  forwardToLStep().catch(err => console.error("[Lステップ転送] 致命的エラー:", err))
+  forwardToDify().catch(err => console.error("[Dify転送] 致命的エラー:", err))
 
   return c.json({ status: 200 })
 })
