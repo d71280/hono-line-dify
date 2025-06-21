@@ -97,11 +97,16 @@ app.post("/", async (c) => {
         }
       })
       
+      console.log(`[Lステップ転送] URL: ${process.env.LSTEP_WEBHOOK_URL}`)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000) // 10秒タイムアウト
+      
       const res = await fetch(process.env.LSTEP_WEBHOOK_URL!, {
         method: "POST",
         headers: forwardHeaders,
-        body: rawBody
-      })
+        body: rawBody,
+        signal: controller.signal
+      }).finally(() => clearTimeout(timeoutId))
 
       if (res.ok) {
         console.log(`[Lステップ転送] 成功 - ステータス: ${res.status}`)
@@ -180,11 +185,15 @@ const handleEvent = async (event: WebhookEvent, destination: string, originalSig
                 
                 console.log(`[Dify転送] ヘッダー:`, JSON.stringify(forwardHeaders))
                 
+                const controller = new AbortController()
+                const timeoutId = setTimeout(() => controller.abort(), 10000) // 10秒タイムアウト
+                
                 const res = await fetch(process.env.DIFY_LINE_BOT_ENDPOINT!, {
                   method: "POST",
                   headers: forwardHeaders,
-                  body: originalBody
-                })
+                  body: originalBody,
+                  signal: controller.signal
+                }).finally(() => clearTimeout(timeoutId))
                 
                 if (res.ok) {
                   console.log(`[Dify転送] 成功 - ステータス: ${res.status}`)
