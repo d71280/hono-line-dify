@@ -238,7 +238,7 @@ app.post("/", async (c) => {
       console.log("[Dify転送] 開始")
       console.log(`[Dify転送] URL: ${difyUrl}`)
       
-      const headers = prepareLINEHeaders(false)  // Difyプラグインには署名を含めない
+      const headers = prepareLINEHeaders(true)  // Difyプラグインにも署名を含める
       console.log(`[Dify転送] ヘッダー:`, JSON.stringify(headers))
       console.log(`[Dify転送] ボディサイズ: ${rawBody.length} bytes`)
       
