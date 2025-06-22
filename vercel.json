@@ -12,5 +12,7 @@
   ],
   "redirects": [
     { "source": "/", "destination": "/api", "permanent": false }
-  ]
+  ],
+  "public": true,
+  "cleanUrls": true
 }
