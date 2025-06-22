@@ -9,15 +9,23 @@ const validateEnvVars = () => {
   const required = [
     "LINE_CHANNEL_ACCESS_TOKEN",
     "LINE_CHANNEL_SECRET",
-    "LSTEP_WEBHOOK_URL",
-    "DIFY_LINE_BOT_ENDPOINT"
+    "LSTEP_WEBHOOK_URL"
   ]
   
+  // 基本的な環境変数をチェック
   const missing = required.filter(key => !process.env[key])
   if (missing.length > 0) {
     console.error(`[環境変数エラー] 以下の環境変数が設定されていません: ${missing.join(", ")}`)
     return false
   }
+  
+  // DIFY_API_URL または DIFY_LINE_BOT_ENDPOINT のいずれかが必要
+  const difyUrl = process.env.DIFY_API_URL || process.env.DIFY_LINE_BOT_ENDPOINT
+  if (!difyUrl) {
+    console.error("[環境変数エラー] DIFY_API_URL または DIFY_LINE_BOT_ENDPOINT のいずれかが必要です")
+    return false
+  }
+  
   return true
 }
 
@@ -37,7 +45,8 @@ app.get("/debug", (c) => {
     "LINE_CHANNEL_ACCESS_TOKEN",
     "LINE_CHANNEL_SECRET", 
     "LSTEP_WEBHOOK_URL",
-    "DIFY_LINE_BOT_ENDPOINT"
+    "DIFY_LINE_BOT_ENDPOINT",
+    "DIFY_API_URL"
   ]
   
   const envStatus = required.map(key => ({
@@ -55,7 +64,7 @@ app.get("/debug", (c) => {
     totalEnvVars: Object.keys(process.env).length,
     testEndpoints: {
       lstep: `${process.env.LSTEP_WEBHOOK_URL ? 'CONFIGURED' : 'NOT_SET'}`,
-      dify: `${process.env.DIFY_LINE_BOT_ENDPOINT ? 'CONFIGURED' : 'NOT_SET'}`
+      dify: `${process.env.DIFY_API_URL || process.env.DIFY_LINE_BOT_ENDPOINT ? 'CONFIGURED' : 'NOT_SET'}`
     }
   })
 }) // デバッグ用
@@ -87,12 +96,13 @@ app.get("/test-endpoints", async (c) => {
   }
 
   // Difyのテスト
-  if (process.env.DIFY_LINE_BOT_ENDPOINT) {
+  const difyUrl = process.env.DIFY_API_URL || process.env.DIFY_LINE_BOT_ENDPOINT
+  if (difyUrl) {
     try {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 5000)
       
-      const response = await fetch(process.env.DIFY_LINE_BOT_ENDPOINT, {
+      const response = await fetch(difyUrl, {
         method: 'HEAD', // ヘッダーのみのリクエスト
         signal: controller.signal
       }).finally(() => clearTimeout(timeoutId))
@@ -224,8 +234,9 @@ app.post("/", async (c) => {
   // Difyプラグインへの転送（LINE Webhook → Dify Plugin）
   const forwardToDify = async () => {
     try {
+      const difyUrl = process.env.DIFY_API_URL || process.env.DIFY_LINE_BOT_ENDPOINT
       console.log("[Dify転送] 開始")
-      console.log(`[Dify転送] URL: ${process.env.DIFY_LINE_BOT_ENDPOINT}`)
+      console.log(`[Dify転送] URL: ${difyUrl}`)
       
       const headers = prepareLINEHeaders(false)  // Difyプラグインには署名を含めない
       console.log(`[Dify転送] ヘッダー:`, JSON.stringify(headers))
@@ -238,7 +249,7 @@ app.post("/", async (c) => {
       }, 10000)
       
       console.log("[Dify転送] fetch開始")
-      const res = await fetch(process.env.DIFY_LINE_BOT_ENDPOINT!, {
+      const res = await fetch(difyUrl!, {
         method: "POST",
         headers: headers,
         body: rawBody,
