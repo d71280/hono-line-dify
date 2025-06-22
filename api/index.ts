@@ -52,9 +52,66 @@ app.get("/debug", (c) => {
     allKeys: Object.keys(process.env).filter(key => key.includes('LINE') || key.includes('DIFY') || key.includes('LSTEP')),
     vercelEnv: process.env.VERCEL_ENV || "unknown",
     nodeEnv: process.env.NODE_ENV || "unknown",
-    totalEnvVars: Object.keys(process.env).length
+    totalEnvVars: Object.keys(process.env).length,
+    testEndpoints: {
+      lstep: `${process.env.LSTEP_WEBHOOK_URL ? 'CONFIGURED' : 'NOT_SET'}`,
+      dify: `${process.env.DIFY_LINE_BOT_ENDPOINT ? 'CONFIGURED' : 'NOT_SET'}`
+    }
   })
 }) // デバッグ用
+
+app.get("/test-endpoints", async (c) => {
+  const results = {
+    lstep: { status: 'not_tested', error: null as string | null },
+    dify: { status: 'not_tested', error: null as string | null }
+  }
+
+  // Lステップのテスト
+  if (process.env.LSTEP_WEBHOOK_URL) {
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000)
+      
+      const response = await fetch(process.env.LSTEP_WEBHOOK_URL, {
+        method: 'HEAD', // ヘッダーのみのリクエスト
+        signal: controller.signal
+      }).finally(() => clearTimeout(timeoutId))
+      
+      results.lstep.status = `reachable (${response.status})`
+    } catch (error) {
+      results.lstep.status = 'unreachable'
+      results.lstep.error = (error as any).name === 'AbortError' ? 'timeout' : (error as Error).message
+    }
+  } else {
+    results.lstep.status = 'url_not_set'
+  }
+
+  // Difyのテスト
+  if (process.env.DIFY_LINE_BOT_ENDPOINT) {
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000)
+      
+      const response = await fetch(process.env.DIFY_LINE_BOT_ENDPOINT, {
+        method: 'HEAD', // ヘッダーのみのリクエスト
+        signal: controller.signal
+      }).finally(() => clearTimeout(timeoutId))
+      
+      results.dify.status = `reachable (${response.status})`
+    } catch (error) {
+      results.dify.status = 'unreachable'
+      results.dify.error = (error as any).name === 'AbortError' ? 'timeout' : (error as Error).message
+    }
+  } else {
+    results.dify.status = 'url_not_set'
+  }
+
+  return c.json({
+    message: "Endpoint connectivity test results",
+    results,
+    timestamp: new Date().toISOString()
+  })
+})
 
 app.post("/", async (c) => {
   // 環境変数の検証
@@ -131,7 +188,10 @@ app.post("/", async (c) => {
       console.log(`[Lステップ転送] ボディサイズ: ${rawBody.length} bytes`)
       
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 30000)
+      const timeoutId = setTimeout(() => {
+        console.log("[Lステップ転送] 10秒でタイムアウトします")
+        controller.abort()
+      }, 10000) // 10秒に短縮
       
       console.log("[Lステップ転送] fetch開始")
       const res = await fetch(process.env.LSTEP_WEBHOOK_URL!, {
@@ -152,7 +212,12 @@ app.post("/", async (c) => {
         console.error(`[Lステップ転送] エラーレスポンス: ${errorText}`)
       }
     } catch (error) {
-      console.error("[Lステップ転送] エラー:", error)
+      if (error.name === 'AbortError') {
+        console.error("[Lステップ転送] タイムアウトエラー: 10秒以内に応答がありませんでした")
+        console.error("[Lステップ転送] Lステップのサーバーが応答していない可能性があります")
+      } else {
+        console.error("[Lステップ転送] エラー:", error)
+      }
     }
   }
 
@@ -169,7 +234,10 @@ app.post("/", async (c) => {
       
       // ✅ controllerとtimeoutIdを正しく定義
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 30000)
+      const timeoutId = setTimeout(() => {
+        console.log("[Dify転送] 10秒でタイムアウトします")
+        controller.abort()
+      }, 10000) // 10秒に短縮
       
       console.log("[Dify転送] fetch開始")
       const res = await fetch(process.env.DIFY_LINE_BOT_ENDPOINT!, {
@@ -191,17 +259,26 @@ app.post("/", async (c) => {
       }
     } catch (error) {
       if (error.name === 'AbortError') {
-        console.error("[Dify転送] タイムアウトエラー: 30秒以内に応答がありませんでした")
+        console.error("[Dify転送] タイムアウトエラー: 10秒以内に応答がありませんでした")
+        console.error("[Dify転送] Difyのサーバーが応答していない可能性があります")
       } else {
         console.error("[Dify転送] エラー:", error)
       }
     }
   }
 
-  // LステップとDifyへの転送を並行実行
+  // LステップとDifyへの転送を並行実行（結果を待機）
   console.log("[転送開始] LステップとDifyへの並行転送を開始します")
-  forwardToLStep().catch(err => console.error("[Lステップ転送] 致命的エラー:", err))
-  forwardToDify().catch(err => console.error("[Dify転送] 致命的エラー:", err))
+  
+  try {
+    await Promise.allSettled([
+      forwardToLStep(),
+      forwardToDify()
+    ])
+    console.log("[転送完了] すべての転送処理が完了しました")
+  } catch (error) {
+    console.error("[転送エラー] 予期しないエラーが発生しました:", error)
+  }
 
   return c.json({ status: 200 })
 })
