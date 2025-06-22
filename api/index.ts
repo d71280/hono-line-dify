@@ -78,14 +78,18 @@ app.post("/", async (c) => {
     return c.json({ status: 401, message: "Invalid signature" }, 401)
   }
 
-  // ✅ プロキシ情報完全除去版ヘッダー
-  const prepareLINEHeaders = () => {
+  // ✅ 修正版：プロキシ情報完全除去
+  const prepareLINEHeaders = (includeSignature: boolean = true) => {
     const forwardHeaders: any = {
       "Content-Type": "application/json",
       "User-Agent": "LineBotWebhook/1.0",
-      "X-Line-Signature": originalSignature,
       "Accept": "application/json",
       "Cache-Control": "no-cache"
+    }
+    
+    // 署名を含めるかどうかを選択
+    if (includeSignature) {
+      forwardHeaders["X-Line-Signature"] = originalSignature
     }
     
     // ✅ LINE特有のヘッダーのみ厳選して転送
@@ -93,9 +97,9 @@ app.post("/", async (c) => {
       const lowerKey = key.toLowerCase()
       if (lowerKey.startsWith('x-line-') && 
           lowerKey !== 'x-line-signature' &&
-          !lowerKey.includes('forwarded') &&  // プロキシ関連を除外
-          !lowerKey.includes('host') &&       // Host関連を除外
-          !lowerKey.includes('proxy')) {      // プロキシ関連を除外
+          !lowerKey.includes('forwarded') &&
+          !lowerKey.includes('host') &&
+          !lowerKey.includes('proxy')) {
         forwardHeaders[key] = headers[key]
       }
     })
@@ -122,7 +126,7 @@ app.post("/", async (c) => {
       console.log("[Lステップ転送] 開始")
       console.log(`[Lステップ転送] URL: ${process.env.LSTEP_WEBHOOK_URL}`)
       
-      const headers = prepareLINEHeaders()
+      const headers = prepareLINEHeaders(true)  // Lステップには署名を含める
       console.log(`[Lステップ転送] ヘッダー:`, JSON.stringify(headers))
       console.log(`[Lステップ転送] ボディサイズ: ${rawBody.length} bytes`)
       
@@ -158,13 +162,19 @@ app.post("/", async (c) => {
       console.log("[Dify転送] 開始")
       console.log(`[Dify転送] URL: ${process.env.DIFY_LINE_BOT_ENDPOINT}`)
       
+      const headers = prepareLINEHeaders(false)  // Difyには署名を含めない
+      console.log(`[Dify転送] ヘッダー:`, JSON.stringify(headers))
+      console.log(`[Dify転送] ボディサイズ: ${rawBody.length} bytes`)
+      console.log(`[Dify転送] ボディ内容 (最初の500文字):`, rawBody.substring(0, 500))
+      
       // ✅ controllerとtimeoutIdを正しく定義
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 30000)
       
+      console.log("[Dify転送] fetch開始")
       const res = await fetch(process.env.DIFY_LINE_BOT_ENDPOINT!, {
         method: "POST",
-        headers: prepareLINEHeaders(),
+        headers: headers,
         body: rawBody,
         signal: controller.signal
       }).finally(() => clearTimeout(timeoutId))
