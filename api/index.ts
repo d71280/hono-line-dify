@@ -10,8 +10,7 @@ const validateEnvVars = () => {
     "LINE_CHANNEL_ACCESS_TOKEN",
     "LINE_CHANNEL_SECRET",
     "LSTEP_WEBHOOK_URL",
-    "DIFY_LINE_BOT_ENDPOINT",
-    "DIFY_API_KEY"
+    "DIFY_LINE_BOT_ENDPOINT"
   ]
   
   const missing = required.filter(key => !process.env[key])
@@ -38,8 +37,7 @@ app.get("/debug", (c) => {
     "LINE_CHANNEL_ACCESS_TOKEN",
     "LINE_CHANNEL_SECRET", 
     "LSTEP_WEBHOOK_URL",
-    "DIFY_LINE_BOT_ENDPOINT",
-    "DIFY_API_KEY"
+    "DIFY_LINE_BOT_ENDPOINT"
   ]
   
   const envStatus = required.map(key => ({
@@ -223,43 +221,15 @@ app.post("/", async (c) => {
     }
   }
 
-  // DifyチャットアプリAPIへの転送（LINE Webhook → Dify API変換）
+  // Difyプラグインへの転送（LINE Webhook → Dify Plugin）
   const forwardToDify = async () => {
     try {
       console.log("[Dify転送] 開始")
       console.log(`[Dify転送] URL: ${process.env.DIFY_LINE_BOT_ENDPOINT}`)
       
-      // LINE Webhookからテキストメッセージを抽出
-      const textMessages = webhookBody.events
-        .filter(event => event.type === 'message' && (event as any).message?.type === 'text')
-        .map(event => (event as any).message.text)
-      
-      if (textMessages.length === 0) {
-        console.log("[Dify転送] テキストメッセージが見つかりません。スキップします。")
-        return
-      }
-      
-      // ユーザーIDを取得
-      const userId = webhookBody.events[0]?.source?.userId || 'unknown'
-      
-      // Dify APIに送信するペイロード
-      const difyPayload = {
-        inputs: {},
-        query: textMessages[0], // 最初のテキストメッセージを使用
-        response_mode: "blocking",
-        conversation_id: "", 
-        user: userId,
-        files: []
-      }
-      
-      // Dify API用のヘッダー
-      const difyHeaders = {
-        "Authorization": `Bearer ${process.env.DIFY_API_KEY}`,
-        "Content-Type": "application/json"
-      }
-      
-      console.log(`[Dify転送] ペイロード:`, JSON.stringify(difyPayload, null, 2))
-      console.log(`[Dify転送] ヘッダー:`, JSON.stringify(difyHeaders))
+      const headers = prepareLINEHeaders(false)  // Difyプラグインには署名を含めない
+      console.log(`[Dify転送] ヘッダー:`, JSON.stringify(headers))
+      console.log(`[Dify転送] ボディサイズ: ${rawBody.length} bytes`)
       
       const controller = new AbortController()
       const timeoutId = setTimeout(() => {
@@ -270,8 +240,8 @@ app.post("/", async (c) => {
       console.log("[Dify転送] fetch開始")
       const res = await fetch(process.env.DIFY_LINE_BOT_ENDPOINT!, {
         method: "POST",
-        headers: difyHeaders,
-        body: JSON.stringify(difyPayload),
+        headers: headers,
+        body: rawBody,
         signal: controller.signal
       }).finally(() => clearTimeout(timeoutId))
       
@@ -280,17 +250,6 @@ app.post("/", async (c) => {
         console.log(`[Dify転送] 成功 - ステータス: ${res.status}`)
         const responseText = await res.text()
         console.log(`[Dify転送] レスポンス内容: ${responseText.substring(0, 500)}`)
-        
-        // Difyのレスポンスをパースして、必要に応じてLINEに返信
-        try {
-          const difyResponse = JSON.parse(responseText)
-          if (difyResponse.answer) {
-            console.log(`[Dify転送] AIの回答: ${difyResponse.answer}`)
-            // ここで必要に応じてLINE返信APIを呼び出すことができます
-          }
-        } catch (parseError) {
-          console.log("[Dify転送] レスポンスのJSONパースに失敗しました")
-        }
       } else {
         console.error(`[Dify転送] 失敗 - ステータス: ${res.status}`)
         const errorText = await res.text()
@@ -299,7 +258,7 @@ app.post("/", async (c) => {
     } catch (error) {
       if (error.name === 'AbortError') {
         console.error("[Dify転送] タイムアウトエラー: 10秒以内に応答がありませんでした")
-        console.error("[Dify転送] Difyのサーバーが応答していない可能性があります")
+        console.error("[Dify転送] Difyプラグインサーバーが応答していない可能性があります")
       } else {
         console.error("[Dify転送] エラー:", error)
       }
