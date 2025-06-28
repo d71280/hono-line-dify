@@ -19,9 +19,9 @@ const validateEnvVars = () => {
     return false
   }
   
-  // DIFY_LINE_BOT_ENDPOINT が必要
-  if (!process.env.DIFY_LINE_BOT_ENDPOINT) {
-    console.error("[環境変数エラー] DIFY_LINE_BOT_ENDPOINT が必要です")
+  // GAS_ENDPOINT が必要
+  if (!process.env.GAS_ENDPOINT) {
+    console.error("[環境変数エラー] GAS_ENDPOINT が必要です")
     return false
   }
   
@@ -44,7 +44,7 @@ app.get("/debug", (c) => {
     "LINE_CHANNEL_ACCESS_TOKEN",
     "LINE_CHANNEL_SECRET", 
     "LSTEP_WEBHOOK_URL",
-    "DIFY_LINE_BOT_ENDPOINT"
+    "GAS_ENDPOINT"
   ]
   
   const envStatus = required.map(key => ({
@@ -56,13 +56,13 @@ app.get("/debug", (c) => {
   
   return c.json({
     envStatus,
-    allKeys: Object.keys(process.env).filter(key => key.includes('LINE') || key.includes('DIFY') || key.includes('LSTEP')),
+    allKeys: Object.keys(process.env).filter(key => key.includes('LINE') || key.includes('GAS') || key.includes('LSTEP')),
     vercelEnv: process.env.VERCEL_ENV || "unknown",
     nodeEnv: process.env.NODE_ENV || "unknown",
     totalEnvVars: Object.keys(process.env).length,
     testEndpoints: {
       lstep: `${process.env.LSTEP_WEBHOOK_URL ? 'CONFIGURED' : 'NOT_SET'}`,
-      dify: `${process.env.DIFY_LINE_BOT_ENDPOINT ? 'CONFIGURED' : 'NOT_SET'}`
+      gas: `${process.env.GAS_ENDPOINT ? 'CONFIGURED' : 'NOT_SET'}`
     }
   })
 }) // デバッグ用
@@ -70,7 +70,7 @@ app.get("/debug", (c) => {
 app.get("/test-endpoints", async (c) => {
   const results = {
     lstep: { status: 'not_tested', error: null as string | null },
-    dify: { status: 'not_tested', error: null as string | null }
+    gas: { status: 'not_tested', error: null as string | null }
   }
 
   // Lステップのテスト
@@ -93,24 +93,24 @@ app.get("/test-endpoints", async (c) => {
     results.lstep.status = 'url_not_set'
   }
 
-  // Difyのテスト
-  if (process.env.DIFY_LINE_BOT_ENDPOINT) {
+  // GASのテスト
+  if (process.env.GAS_ENDPOINT) {
     try {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 5000)
       
-      const response = await fetch(process.env.DIFY_LINE_BOT_ENDPOINT, {
+      const response = await fetch(process.env.GAS_ENDPOINT, {
         method: 'HEAD', // ヘッダーのみのリクエスト
         signal: controller.signal
       }).finally(() => clearTimeout(timeoutId))
       
-      results.dify.status = `reachable (${response.status})`
+      results.gas.status = `reachable (${response.status})`
     } catch (error) {
-      results.dify.status = 'unreachable'
-      results.dify.error = (error as any).name === 'AbortError' ? 'timeout' : (error as Error).message
+      results.gas.status = 'unreachable'
+      results.gas.error = (error as any).name === 'AbortError' ? 'timeout' : (error as Error).message
     }
   } else {
-    results.dify.status = 'url_not_set'
+    results.gas.status = 'url_not_set'
   }
 
   return c.json({
@@ -228,57 +228,57 @@ app.post("/", async (c) => {
     }
   }
 
-  // Difyプラグインへの転送（LINE Webhook → Dify Plugin）
-  const forwardToDify = async () => {
+  // GASへの転送（LINE Webhook → GAS）
+  const forwardToGAS = async () => {
     try {
-      console.log("[Dify転送] 開始")
-      console.log(`[Dify転送] URL: ${process.env.DIFY_LINE_BOT_ENDPOINT}`)
+      console.log("[GAS転送] 開始")
+      console.log(`[GAS転送] URL: ${process.env.GAS_ENDPOINT}`)
       
-      const headers = prepareLINEHeaders(true)  // Difyプラグインにも署名を含める
-      console.log(`[Dify転送] ヘッダー:`, JSON.stringify(headers))
-      console.log(`[Dify転送] ボディサイズ: ${rawBody.length} bytes`)
+      const headers = prepareLINEHeaders(true)  // GASにも署名を含める
+      console.log(`[GAS転送] ヘッダー:`, JSON.stringify(headers))
+      console.log(`[GAS転送] ボディサイズ: ${rawBody.length} bytes`)
       
       const controller = new AbortController()
       const timeoutId = setTimeout(() => {
-        console.log("[Dify転送] 10秒でタイムアウトします")
+        console.log("[GAS転送] 10秒でタイムアウトします")
         controller.abort()
       }, 10000)
       
-      console.log("[Dify転送] fetch開始")
-      const res = await fetch(process.env.DIFY_LINE_BOT_ENDPOINT!, {
+      console.log("[GAS転送] fetch開始")
+      const res = await fetch(process.env.GAS_ENDPOINT!, {
         method: "POST",
         headers: headers,
         body: rawBody,
         signal: controller.signal
       }).finally(() => clearTimeout(timeoutId))
       
-      console.log(`[Dify転送] レスポンス受信 - ステータス: ${res.status}`)
+      console.log(`[GAS転送] レスポンス受信 - ステータス: ${res.status}`)
       if (res.ok) {
-        console.log(`[Dify転送] 成功 - ステータス: ${res.status}`)
+        console.log(`[GAS転送] 成功 - ステータス: ${res.status}`)
         const responseText = await res.text()
-        console.log(`[Dify転送] レスポンス内容: ${responseText.substring(0, 500)}`)
+        console.log(`[GAS転送] レスポンス内容: ${responseText.substring(0, 500)}`)
       } else {
-        console.error(`[Dify転送] 失敗 - ステータス: ${res.status}`)
+        console.error(`[GAS転送] 失敗 - ステータス: ${res.status}`)
         const errorText = await res.text()
-        console.error(`[Dify転送] エラーレスポンス: ${errorText}`)
+        console.error(`[GAS転送] エラーレスポンス: ${errorText}`)
       }
     } catch (error) {
       if (error.name === 'AbortError') {
-        console.error("[Dify転送] タイムアウトエラー: 10秒以内に応答がありませんでした")
-        console.error("[Dify転送] Difyプラグインサーバーが応答していない可能性があります")
+        console.error("[GAS転送] タイムアウトエラー: 10秒以内に応答がありませんでした")
+        console.error("[GAS転送] GASサーバーが応答していない可能性があります")
       } else {
-        console.error("[Dify転送] エラー:", error)
+        console.error("[GAS転送] エラー:", error)
       }
     }
   }
 
-  // LステップとDifyへの転送を並行実行（結果を待機）
-  console.log("[転送開始] LステップとDifyへの並行転送を開始します")
+  // LステップとGASへの転送を並行実行（結果を待機）
+  console.log("[転送開始] LステップとGASへの並行転送を開始します")
   
   try {
     await Promise.allSettled([
       forwardToLStep(),
-      forwardToDify()
+      forwardToGAS()
     ])
     console.log("[転送完了] すべての転送処理が完了しました")
   } catch (error) {
